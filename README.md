@@ -1,6 +1,6 @@
 ## User Interface & Signal Flow
 
-**Disclaumer: Coded with AI, i am just an enthousiast, at no point do i take responsibility **
+**`Disclaimer: Coded with AI, i am just an enthousiast who likes Cool stuff, at no point do i take responsibility for the code quality. `**
 
 The SuperCool Batch UI provides an explicit, visual control pipeline designed to prioritize AI-model upscaling while giving you highly flexible, mathematical interpolation utilities as cleanly isolated pre- or post-processing operations. 
 

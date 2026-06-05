@@ -96,6 +96,7 @@ def main():
         print(f"-> [Stage 2] AI Model Active: Initializing {os.path.basename(args.checkpoint_path)}")
         ext = os.path.splitext(args.checkpoint_path.lower())[1]
         
+        # 1. Load state_dict (Do not pass to model yet)
         if ext == ".safetensors":
             from safetensors.torch import load_file as load_safetensors
             state_dict = load_safetensors(args.checkpoint_path)
@@ -103,28 +104,38 @@ def main():
             checkpoint = torch.load(args.checkpoint_path, map_location=args.device, weights_only=True)
             state_dict = checkpoint if not isinstance(checkpoint, dict) or "model" not in checkpoint else checkpoint["model"]
 
-        # Dynamically determine the model's native ratio (no more forced extra interpolation)
-        checkpoint_ratio = 4  # fallback
+        # 2. Determine Architecture
+        # Fallback to 4x ratio if not detectable
+        checkpoint_ratio = 4 
         if "decoder.conv.bias" in state_dict:
             bias_size = state_dict["decoder.conv.bias"].shape[0]
             checkpoint_ratio = int((bias_size / 3) ** 0.5)
 
+        # 3. Explicit Configuration
         profile_mode = args.profile_override.lower()
-        if ext != ".safetensors" and isinstance(checkpoint, dict) and "model_args" in checkpoint:
-            model_kwargs = checkpoint["model_args"]
-            model_kwargs["upscale_ratio"] = checkpoint_ratio
-        else:
-            if "small" in profile_mode:
-                model_kwargs = {"base_upscaler": "bicubic", "upscale_ratio": checkpoint_ratio, "num_channels": 64, "hidden_ratio": 2, "num_layers": 4}
-            elif "medium" in profile_mode:
-                model_kwargs = {"base_upscaler": "bicubic", "upscale_ratio": checkpoint_ratio, "num_channels": 128, "hidden_ratio": 2, "num_layers": 8}
-            else:
-                model_kwargs = {"base_upscaler": "bicubic", "upscale_ratio": checkpoint_ratio, "num_channels": 256, "hidden_ratio": 2, "num_layers": 32}
+        model_kwargs = {
+            "base_upscaler": "bicubic",
+            "upscale_ratio": checkpoint_ratio,
+            "hidden_ratio": 2,
+        }
 
+        if "small" in profile_mode:
+            model_kwargs.update({"num_channels": 64, "num_layers": 4})
+        elif "medium" in profile_mode:
+            model_kwargs.update({"num_channels": 128, "num_layers": 8})
+        else:
+            # Default to Large
+            model_kwargs.update({"num_channels": 256, "num_layers": 32})
+
+        # 4. Strict Loading Logic
+        print(f"-> Initializing model with: {model_kwargs}")
         model = SuperCool(**model_kwargs).to(args.device)
-        model.load_state_dict(state_dict, strict=False)
-        try: model.remove_weight_norms()
-        except: pass
+        
+        # Strip wrappers BEFORE loading weights
+        model.remove_weight_norms()
+        
+        # Load weights with strict=True to catch structure mismatches immediately
+        model.load_state_dict(state_dict, strict=True)
         model.eval()
 
         print(f"-> Executing neural network pass at native {checkpoint_ratio}x.")

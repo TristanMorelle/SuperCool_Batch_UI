@@ -13,7 +13,7 @@ This stage modifies the input image *before* it hits the neural network. To acti
 
 #### 2. Stage 2: AI Model Upscale
 This is the core neural network execution block. When checked **Active**, the system automatically loads your chosen weight file and executes a pure super-resolution pass.
-* **Native Scaling:** The pipeline dynamically reads the architecture of your checkpoint and processes the pass strictly at its native trained ratio (e.g., a native `4x` pass). It no longer forces hidden interpolation within the model stage.
+* **Native Scaling:** The pipeline dynamically reads the architecture of your checkpoint and processes the pass strictly at its native trained ratio (e.g., a native `4x` pass).
 * **Profile Fallback Safety Net:** If you load a raw weights checkpoint or a `.safetensors` file that lacks an internal architecture blueprint dictionary (`model_args`), the pipeline references this dropdown to manually instantiate the network topology. 
   * `SMALL`: Instantiates a lightweight structure (**4 layers**, **64 channels**).
   * `MEDIUM`: Instantiates a balanced structure (**8 layers**, **128 channels**).

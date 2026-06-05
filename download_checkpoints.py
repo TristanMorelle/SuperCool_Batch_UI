@@ -4,9 +4,9 @@ import urllib.request
 from tqdm import tqdm
 
 CHECKPOINT_MAPPING = {
-    "small.safetensors": "https://example.com/weights/small.safetensors",
-    "medium.safetensors": "https://example.com/weights/medium.safetensors",
-    "large.safetensors": "https://example.com/weights/large.safetensors"
+    "SuperCool-4x-Small.safetensors": "https://huggingface.co/andrewdalpino/SuperCool-4x-Small/resolve/main/model.safetensors",
+    "SuperCool-4x-Medium.safetensors": "https://huggingface.co/andrewdalpino/SuperCool-4x-Medium/resolve/main/model.safetensors",
+    "SuperCool-4x-Large.safetensors": "https://huggingface.co/andrewdalpino/SuperCool-4x-Large/resolve/main/model.safetensors"
 }
 
 class DownloadProgressBar(tqdm):

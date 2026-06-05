@@ -1,3 +1,11 @@
+# SuperCool Ui
+** Update * Warning: vibecoded *
+- Quickly Made a ui.
+- auto installer.
+- fixed some runtime issues i had.
+  
+![Super Cool ui](./docs/images/SuperCool_ui.png)
+
 # SuperCool
 
 SuperCool is a fast single-image super-resolution (SISR) model capable of upscaling images 2X, 4X, and 8X with high visual fidelity. The model is trained in two stages which optimize for different objectives. The first stage focuses on upscaling using a regularized reconstruction loss and the second stage focuses on increasing visual fidelity through generative adversarial network (GAN) training. When combined, these objectives produce models that output upscaled images that look better to the human eye than models that were not jointly optimized.

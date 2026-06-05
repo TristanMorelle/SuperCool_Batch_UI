@@ -1,7 +1,7 @@
 # SuperCool Ui
 ** Update * Warning: vibecoded *
 - Quickly Made a ui.
-- auto installer.
+- auto installer (untested).
 - fixed some runtime issues i had.
   
 ![Super Cool ui](./docs/images/SuperCool_ui.png)

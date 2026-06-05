@@ -2,6 +2,7 @@
 ** Update
 Quickly Made a ui, auto installer, fixed some runtime issues i had.
 * Warning: vibecoded *
+  
 ![Super Cool ui](https://raw.githubusercontent.com/andrewdalpino/SuperCool/master/docs/images/SuperCool_ui.png)
 
 # SuperCool

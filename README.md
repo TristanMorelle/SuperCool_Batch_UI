@@ -1,8 +1,37 @@
-# SuperCool Ui
-** Update * Warning: vibecoded *
-- Quickly Made a ui.
-- auto installer (untested).
-- fixed some runtime issues i had.
+## User Interface & Signal Flow
+
+The SuperCool Batch UI provides an explicit, visual control pipeline designed to prioritize AI-model upscaling while giving you highly flexible, mathematical interpolation utilities as cleanly isolated pre- or post-processing operations. 
+
+The application strictly enforces a chronological **Pre-Process ⇒ AI Model ⇒ Post-Process** signal flow.
+
+### Pipeline Stages
+
+#### 1. Stage 1: Pre-Processing (Interpolation)
+This stage modifies the input image *before* it hits the neural network. To activate it, check the **Active** box. You must choose one of two mutually exclusive modes:
+* **Multiples:** Scales the input tensor by a precise division/increment of 2 using high-fidelity bicubic interpolation (options range from `0.25x` to `4.0x`, with `0.5x` being highly useful for downscaling massive textures before AI processing).
+* **Conform to Max:** Identifies the longest side of the image (Width or Height) and scales the entire image down/up so that the prominent axis matches your exact pixel boundary. The bounding aspect ratio is completely preserved. Setting a value to `0` disables constraint tracking for that specific axis.
+
+#### 2. Stage 2: AI Model Upscale
+This is the core neural network execution block. When checked **Active**, the system automatically loads your chosen weight file and executes a pure super-resolution pass.
+* **Native Scaling:** The pipeline dynamically reads the architecture of your checkpoint and processes the pass strictly at its native trained ratio (e.g., a native `4x` pass). It no longer forces hidden interpolation within the model stage.
+* **Profile Fallback Safety Net:** If you load a raw weights checkpoint or a `.safetensors` file that lacks an internal architecture blueprint dictionary (`model_args`), the pipeline references this dropdown to manually instantiate the network topology. 
+  * `SMALL`: Instantiates a lightweight structure (**4 layers**, **64 channels**).
+  * `MEDIUM`: Instantiates a balanced structure (**8 layers**, **128 channels**).
+  * `LARGE`: Instantiates the full-scale production network (**32 layers**, **256 channels**).
+  * *Note: The UI will automatically pre-select this dropdown if it detects "small", "medium", or "large" strings in your checkpoint's filename.*
+
+#### 3. Stage 3: Post-Processing (Interpolation)
+This stage applies final layout modifications *after* the neural network pass has finished. Checking **Active** opens up two choices:
+* **Multiples:** Scales the AI output by your selected modifier (`1.0x` default).
+* **Conform to Max:** Conforms the upscaled result to explicit maximum pixel dimensions while keeping the aspect ratio structurally locked.
+
+### Dynamic UI Safety States & Logic Rules
+
+To maintain optimal data fidelity and prevent artifacts introduced by redundant scaling operations, the interface enforces the following strict visual constraints:
+
+* **Stage Toggles:** Unchecking the **Active** checkbox on any stage will completely gray out all options inside that block, safely omitting it from the execution call.
+* **Double-Interpolation Prevention:** Within both Stage 1 (Pre) and Stage 3 (Post), selecting a mode radio button (`Multiples` or `Conform to Max`) will instantly gray out and disable the opposite mode. You cannot run both a multiple shift and a conform target inside the same stage.
+* **Dynamic Output Naming:** The pipeline dynamically tracks every stage active during a run and stamps your processed files with a custom `flow_id` suffix (e.g., `_Pre0.5x_checkpointName_PostConformW2040H0.png`) so your experiments never overwrite one another.
   
 ![Super Cool ui](./docs/images/SuperCool_ui.png)
 

@@ -13,7 +13,7 @@ class SuperCoolUI:
         self.root.geometry("550x420")
         self.root.resizable(False, False)
 
-        self.checkpoint_dir = r"C:\Workspace\SuperCool\checkpoints"
+        self.checkpoint_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "checkpoints"))
         self.selected_files = []
         self.available_checkpoints = {}
         

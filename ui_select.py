@@ -140,8 +140,6 @@ class SuperCoolUI:
         self.update_ui_states()
 
     def update_ui_states(self, *args):
-        """Grays out inactive components based on signal flow selections."""
-        # Pre-process states
         if not self.pre_active_var.get():
             self.pre_rad_multi.config(state=tk.DISABLED)
             self.pre_rad_conform.config(state=tk.DISABLED)
@@ -160,12 +158,10 @@ class SuperCoolUI:
                 self.pre_max_w_entry.config(state=tk.NORMAL)
                 self.pre_max_h_entry.config(state=tk.NORMAL)
 
-        # AI Model states
         state = tk.NORMAL if self.ai_active_var.get() else tk.DISABLED
         self.checkpoint_combo.config(state="readonly" if self.ai_active_var.get() else tk.DISABLED)
         self.profile_combo.config(state="readonly" if self.ai_active_var.get() else tk.DISABLED)
 
-        # Post-process states
         if not self.post_active_var.get():
             self.post_rad_multi.config(state=tk.DISABLED)
             self.post_rad_conform.config(state=tk.DISABLED)
@@ -285,45 +281,56 @@ class SuperCoolUI:
                     files_to_process.append(img_path)
         else:
             files_to_process = self.selected_files
+
+        if not files_to_process:
+            print("\nNo new files to process.")
+            self.root.after(0, self._finalize_pipeline_run, unique_upscale_folders)
+            return
+            
+        # --- FIX: Write file paths to a temporary batch list text file ---
+        batch_list_path = os.path.abspath("temp_batch_list.txt")
+        with open(batch_list_path, "w", encoding="utf-8") as f:
+            for img_path in files_to_process:
+                f.write(f"{img_path}\n")
         
         try:
-            for idx, img_path in enumerate(files_to_process, 1):
-                filename = os.path.basename(img_path)
-                print(f"\nProcessing [{idx}/{len(files_to_process)}]: {filename}")
-                
-                cmd = [sys.executable, "-u", "upscale_pipeline.py", "--image_path", img_path, "--device", self.device_var.get()]
-                
-                if self.pre_active_var.get():
-                    cmd.extend(["--pre_active", "--pre_mode", self.pre_mode_var.get()])
-                    if self.pre_mode_var.get() == "multiple":
-                        cmd.extend(["--pre_multiple", str(float(self.pre_multi_var.get().replace('x', '')))])
-                    else:
-                        w_val = self.pre_max_w_var.get() if self.pre_max_w_var.get().isdigit() else "0"
-                        h_val = self.pre_max_h_var.get() if self.pre_max_h_var.get().isdigit() else "0"
-                        cmd.extend(["--pre_max_w", w_val, "--pre_max_h", h_val])
-                
-                if self.ai_active_var.get() and chosen_checkpoint_path:
-                    cmd.extend(["--ai_active", "--checkpoint_path", chosen_checkpoint_path, "--profile_override", self.profile_var.get().lower()])
-                
-                if self.post_active_var.get():
-                    cmd.extend(["--post_active", "--post_mode", self.post_mode_var.get()])
-                    if self.post_mode_var.get() == "multiple":
-                        cmd.extend(["--post_multiple", str(float(self.post_multi_var.get().replace('x', '')))])
-                    else:
-                        w_val = self.post_max_w_var.get() if self.post_max_w_var.get().isdigit() else "0"
-                        h_val = self.post_max_h_var.get() if self.post_max_h_var.get().isdigit() else "0"
-                        cmd.extend(["--post_max_w", w_val, "--post_max_h", h_val])
-                
-                cmd.extend(["--flow_id", flow_id])
-                
-                process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
-                if process.stdout:
-                    for line in process.stdout:
-                        print(line, end="")
-                        if "TARGET_DIR_TRACKER_TOKEN:" in line:
-                            extracted_folder = line.split("TARGET_DIR_TRACKER_TOKEN:")[-1].strip()
-                            if extracted_folder: unique_upscale_folders.add(extracted_folder)
-                process.wait()
+            print(f"\nProcessing {len(files_to_process)} files in a single batch...")
+            
+            # --- FIX: Send a single command pointing to the batch list ---
+            cmd = [sys.executable, "-u", "upscale_pipeline.py", "--batch_list", batch_list_path, "--device", self.device_var.get()]
+            
+            if self.pre_active_var.get():
+                cmd.extend(["--pre_active", "--pre_mode", self.pre_mode_var.get()])
+                if self.pre_mode_var.get() == "multiple":
+                    cmd.extend(["--pre_multiple", str(float(self.pre_multi_var.get().replace('x', '')))])
+                else:
+                    w_val = self.pre_max_w_var.get() if self.pre_max_w_var.get().isdigit() else "0"
+                    h_val = self.pre_max_h_var.get() if self.pre_max_h_var.get().isdigit() else "0"
+                    cmd.extend(["--pre_max_w", w_val, "--pre_max_h", h_val])
+            
+            if self.ai_active_var.get() and chosen_checkpoint_path:
+                cmd.extend(["--ai_active", "--checkpoint_path", chosen_checkpoint_path, "--profile_override", self.profile_var.get().lower()])
+            
+            if self.post_active_var.get():
+                cmd.extend(["--post_active", "--post_mode", self.post_mode_var.get()])
+                if self.post_mode_var.get() == "multiple":
+                    cmd.extend(["--post_multiple", str(float(self.post_multi_var.get().replace('x', '')))])
+                else:
+                    w_val = self.post_max_w_var.get() if self.post_max_w_var.get().isdigit() else "0"
+                    h_val = self.post_max_h_var.get() if self.post_max_h_var.get().isdigit() else "0"
+                    cmd.extend(["--post_max_w", w_val, "--post_max_h", h_val])
+            
+            cmd.extend(["--flow_id", flow_id])
+            
+            # Start the single process
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+            if process.stdout:
+                for line in process.stdout:
+                    print(line, end="")
+                    if "TARGET_DIR_TRACKER_TOKEN:" in line:
+                        extracted_folder = line.split("TARGET_DIR_TRACKER_TOKEN:")[-1].strip()
+                        if extracted_folder: unique_upscale_folders.add(extracted_folder)
+            process.wait()
             
             print("\n====================================================")
             print("Batch Processing Finished Successfully!")
@@ -331,6 +338,10 @@ class SuperCoolUI:
             
         except Exception as e:
             print(f"\nWorker Thread Processing Error: {e}")
+        finally:
+            # Clean up the temporary batch list file
+            if os.path.exists(batch_list_path):
+                os.remove(batch_list_path)
             
         self.root.after(0, self._finalize_pipeline_run, unique_upscale_folders)
 
@@ -347,7 +358,6 @@ class SuperCoolUI:
                 else: subprocess.Popen(["xdg-open", upscale_folder])
                 
         messagebox.showinfo("Success", "Finished processing images!")
-
 
 if __name__ == "__main__":
     root = tk.Tk()

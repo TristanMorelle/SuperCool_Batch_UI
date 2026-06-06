@@ -22,7 +22,8 @@ def apply_interpolation(tensor, scale_factor=None, target_size=None, mode="bicub
 def main():
     parser = ArgumentParser(description="Super-resolution pipeline processor")
 
-    parser.add_argument("--image_path", type=str, required=True)
+    # --- FIX: Replaced single image path with a batch text file ---
+    parser.add_argument("--batch_list", type=str, required=True, help="Path to text file containing image paths")
     parser.add_argument("--device", default="cuda", type=str)
     parser.add_argument("--flow_id", default="output", type=str)
     
@@ -50,53 +51,25 @@ def main():
     if "cuda" in args.device and not torch.cuda.is_available():
         raise RuntimeError("Cuda driver target is not available.")
 
-    # File setup
-    orig_dir = os.path.dirname(args.image_path)
-    orig_basename = os.path.basename(args.image_path)
-    name_part, ext_part = os.path.splitext(orig_basename)
+    # Read the list of files to process
+    with open(args.batch_list, "r", encoding="utf-8") as f:
+        image_paths = [line.strip() for line in f if line.strip()]
+
+    if not image_paths:
+        print("No images found in batch list to process.")
+        return
+
+    # ==========================================
+    # SETUP: LOAD AI MODEL ONCE 
+    # ==========================================
+    model = None
+    checkpoint_ratio = 4
     
-    target_output_dir = os.path.abspath(os.path.join(orig_dir, "upscaled"))
-    output_filename = f"{name_part}_{args.flow_id}{ext_part}"
-    final_destination_path = os.path.join(target_output_dir, output_filename)
-
-    # Load initial image
-    image = decode_image(args.image_path, mode="RGB")
-    image_to_tensor = ToDtype(torch.float32, scale=True)
-    x = image_to_tensor(image).unsqueeze(0).to(args.device)
-
-    # ==========================================
-    # STAGE 1: PRE-PROCESS (INTERPOLATION)
-    # ==========================================
-    if args.pre_active:
-        if args.pre_mode == "multiple":
-            print(f"-> [Stage 1] Pre-processing: Scaling by multiple {args.pre_multiple}x")
-            x = apply_interpolation(x, scale_factor=args.pre_multiple)
-            
-        elif args.pre_mode == "conform":
-            _, _, h, w = x.shape
-            max_w, max_h = args.pre_max_w, args.pre_max_h
-            
-            if max_w > 0 or max_h > 0:
-                scale_w = max_w / w if max_w > 0 else float('inf')
-                scale_h = max_h / h if max_h > 0 else float('inf')
-                
-                scale = min(scale_w, scale_h)
-                
-                if scale != float('inf'):
-                    target_size = (int(h * scale), int(w * scale))
-                    print(f"-> [Stage 1] Pre-processing: Conforming aspect ratio to {target_size[1]}x{target_size[0]}")
-                    x = apply_interpolation(x, target_size=target_size)
-            else:
-                print("-> [Stage 1] Pre-Conform skipped (both Max Width and Height were 0).")
-
-    # ==========================================
-    # STAGE 2: AI MODEL UPSCALING
-    # ==========================================
     if args.ai_active:
-        print(f"-> [Stage 2] AI Model Active: Initializing {os.path.basename(args.checkpoint_path)}")
+        print(f"-> [System] Loading AI Model from {os.path.basename(args.checkpoint_path)}")
         ext = os.path.splitext(args.checkpoint_path.lower())[1]
         
-        # 1. Load state_dict (Do not pass to model yet)
+        # 1. Load state_dict
         if ext == ".safetensors":
             from safetensors.torch import load_file as load_safetensors
             state_dict = load_safetensors(args.checkpoint_path)
@@ -105,8 +78,6 @@ def main():
             state_dict = checkpoint if not isinstance(checkpoint, dict) or "model" not in checkpoint else checkpoint["model"]
 
         # 2. Determine Architecture
-        # Fallback to 4x ratio if not detectable
-        checkpoint_ratio = 4 
         if "decoder.conv.bias" in state_dict:
             bias_size = state_dict["decoder.conv.bias"].shape[0]
             checkpoint_ratio = int((bias_size / 3) ** 0.5)
@@ -124,87 +95,100 @@ def main():
         elif "medium" in profile_mode:
             model_kwargs.update({"num_channels": 128, "num_layers": 32})
         else:
-            # Default to Large
             model_kwargs.update({"num_channels": 256, "num_layers": 32})
 
         # 4. Strict Loading Logic
-        print(f"-> Initializing model with: {model_kwargs}")
+        print(f"-> [System] Initializing VRAM with: {model_kwargs}")
         model = SuperCool(**model_kwargs).to(args.device)
-        
-        # Strip wrappers BEFORE loading weights
         model.remove_weight_norms()
-        
-        # Load weights with strict=True to catch structure mismatches immediately
         model.load_state_dict(state_dict, strict=True)
         model.eval()
+        print("-> [System] Model loaded successfully. Starting batch process...\n")
 
-        print(f"-> Executing neural network pass at native {checkpoint_ratio}x.")
-        with torch.no_grad():
-            x = model(x).clamp(0.0, 1.0)
 
     # ==========================================
-    # STAGE 3: POST-PROCESS (CONFORM/MULTIPLES)
+    # BATCH PROCESSING LOOP
     # ==========================================
-    if args.post_active:
-        if args.post_mode == "multiple":
-            print(f"-> [Stage 3] Post-processing: Scaling by multiple {args.post_multiple}x")
-            x = apply_interpolation(x, scale_factor=args.post_multiple)
-            
-        elif args.post_mode == "conform":
-            _, _, h, w = x.shape
-            max_w, max_h = args.post_max_w, args.post_max_h
-            
-            if max_w > 0 or max_h > 0:
-                scale_w = max_w / w if max_w > 0 else float('inf')
-                scale_h = max_h / h if max_h > 0 else float('inf')
-                
-                scale = min(scale_w, scale_h)
-                
-                if scale != float('inf'):
-                    target_size = (int(h * scale), int(w * scale))
-                    print(f"-> [Stage 3] Post-processing: Conforming aspect ratio to {target_size[1]}x{target_size[0]}")
-                    x = apply_interpolation(x, target_size=target_size)
-            else:
-                print("-> [Stage 3] Post-Conform skipped (both Max Width and Height were 0).")
+    image_to_tensor = ToDtype(torch.float32, scale=True)
 
-    # ==========================================
-    # FINAL EXPORT
-    # ==========================================
-    # 1. Remove the batch dimension [B, C, H, W] -> [C, H, W]
-    output_tensor = x.squeeze(0)
-    
-    # 2. Debug Print (This will show you exactly what layout the tensor is in)
-    print(f"-> Debug: Raw Output Tensor Shape before formatting: {list(output_tensor.shape)}")
-
-    # 3. Handle shape configurations dynamically
-    if output_tensor.shape[0] == 3:
-        # Layout is already [C, H, W] (Planar) - Perfect for torchvision writers
-        pass
-    elif output_tensor.shape[-1] == 3:
-        # Layout is [H, W, C] (Interleaved) - Convert to [C, H, W]
-        output_tensor = output_tensor.permute(2, 0, 1)
-    else:
-        # Fallback safety: If it's a flattened or unusual array, force a reshape check
-        # Some models require explicit memory layout continuity
-        if len(output_tensor.shape) == 3 and output_tensor.shape[1] == 3:
-            output_tensor = output_tensor.permute(1, 0, 2)
-
-    # 4. Ensure memory layout is completely contiguous in RAM before saving
-    output_tensor = output_tensor.contiguous()
-
-    # 5. Scale to 8-bit unsigned integers
-    output_tensor = (output_tensor * 255.0).to(torch.uint8).cpu()
-    
-    # 6. Save to disk
-    os.makedirs(target_output_dir, exist_ok=True)
-
-    if ext_part.lower() in [".jpg", ".jpeg"]: 
-        write_jpeg(output_tensor, final_destination_path, quality=95)
-    else: 
-        write_png(output_tensor, final_destination_path)
+    for idx, img_path in enumerate(image_paths, 1):
+        print(f"Processing [{idx}/{len(image_paths)}]: {os.path.basename(img_path)}")
         
-    print(f"File processed successfully: {final_destination_path}")
-    print(f"TARGET_DIR_TRACKER_TOKEN:{target_output_dir}")
+        # File setup
+        orig_dir = os.path.dirname(img_path)
+        orig_basename = os.path.basename(img_path)
+        name_part, ext_part = os.path.splitext(orig_basename)
+        
+        target_output_dir = os.path.abspath(os.path.join(orig_dir, "upscaled"))
+        output_filename = f"{name_part}_{args.flow_id}{ext_part}"
+        final_destination_path = os.path.join(target_output_dir, output_filename)
+
+        try:
+            # Load initial image
+            image = decode_image(img_path, mode="RGB")
+            x = image_to_tensor(image).unsqueeze(0).to(args.device)
+
+            # --- STAGE 1: PRE-PROCESS ---
+            if args.pre_active:
+                if args.pre_mode == "multiple":
+                    x = apply_interpolation(x, scale_factor=args.pre_multiple)
+                elif args.pre_mode == "conform":
+                    _, _, h, w = x.shape
+                    max_w, max_h = args.pre_max_w, args.pre_max_h
+                    if max_w > 0 or max_h > 0:
+                        scale_w = max_w / w if max_w > 0 else float('inf')
+                        scale_h = max_h / h if max_h > 0 else float('inf')
+                        scale = min(scale_w, scale_h)
+                        if scale != float('inf'):
+                            target_size = (int(h * scale), int(w * scale))
+                            x = apply_interpolation(x, target_size=target_size)
+
+            # --- STAGE 2: AI UPSCALING ---
+            if args.ai_active and model is not None:
+                with torch.no_grad():
+                    x = model(x).clamp(0.0, 1.0)
+
+            # --- STAGE 3: POST-PROCESS ---
+            if args.post_active:
+                if args.post_mode == "multiple":
+                    x = apply_interpolation(x, scale_factor=args.post_multiple)
+                elif args.post_mode == "conform":
+                    _, _, h, w = x.shape
+                    max_w, max_h = args.post_max_w, args.post_max_h
+                    if max_w > 0 or max_h > 0:
+                        scale_w = max_w / w if max_w > 0 else float('inf')
+                        scale_h = max_h / h if max_h > 0 else float('inf')
+                        scale = min(scale_w, scale_h)
+                        if scale != float('inf'):
+                            target_size = (int(h * scale), int(w * scale))
+                            x = apply_interpolation(x, target_size=target_size)
+
+            # --- FINAL EXPORT ---
+            output_tensor = x.squeeze(0)
+            
+            if output_tensor.shape[0] == 3:
+                pass
+            elif output_tensor.shape[-1] == 3:
+                output_tensor = output_tensor.permute(2, 0, 1)
+            else:
+                if len(output_tensor.shape) == 3 and output_tensor.shape[1] == 3:
+                    output_tensor = output_tensor.permute(1, 0, 2)
+
+            output_tensor = output_tensor.contiguous()
+            output_tensor = (output_tensor * 255.0).to(torch.uint8).cpu()
+            
+            os.makedirs(target_output_dir, exist_ok=True)
+
+            if ext_part.lower() in [".jpg", ".jpeg"]: 
+                write_jpeg(output_tensor, final_destination_path, quality=95)
+            else: 
+                write_png(output_tensor, final_destination_path)
+                
+            print(f"File processed successfully: {final_destination_path}")
+            print(f"TARGET_DIR_TRACKER_TOKEN:{target_output_dir}\n")
+
+        except Exception as e:
+            print(f"ERROR processing {img_path}: {e}\n")
 
 if __name__ == "__main__":
     main()

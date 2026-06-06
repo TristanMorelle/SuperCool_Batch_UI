@@ -122,7 +122,7 @@ def main():
         if "small" in profile_mode:
             model_kwargs.update({"num_channels": 64, "num_layers": 4})
         elif "medium" in profile_mode:
-            model_kwargs.update({"num_channels": 128, "num_layers": 8})
+            model_kwargs.update({"num_channels": 128, "num_layers": 32})
         else:
             # Default to Large
             model_kwargs.update({"num_channels": 256, "num_layers": 32})
